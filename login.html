@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://js.hcaptcha.com https://*.hcaptcha.com; worker-src 'self' blob: https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.hcaptcha.com; frame-src https://*.hcaptcha.com https://newassets.hcaptcha.com; connect-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://*.hcaptcha.com https://bnilhzijsxulgczvnyxn.supabase.co wss://bnilhzijsxulgczvnyxn.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';">
+<title>SGD - Iniciar sesión</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css?v=23">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://js.hcaptcha.com/1/api.js" async defer></script>
+</head>
+<body>
+  <div class="login-container">
+    <form id="loginForm">
+      <h1>Sistema de Gestión Documental</h1>
+      <p class="sub">Archivo institucional de oficios y correspondencia</p>
+      <div class="field">
+        <label for="email">Correo electrónico</label>
+        <input type="email" id="email" placeholder="nombre.apellidoUTP@gmail.com" required>
+      </div>
+      <div class="field">
+        <label for="password">Contraseña</label>
+        <input type="password" id="password" required>
+      </div>
+      <div class="h-captcha" data-sitekey="904881b0-b654-48c2-8e52-42823d420c50" style="margin-bottom:1rem;"></div>
+      <div class="error" id="errorMsg"></div>
+      <button type="submit" class="btn btn-primary">Iniciar sesión</button>
+      <p class="forgot-link"><a href="forgot-password.html">Olvido su contraseña?</a></p>
+    </form>
+  </div>
+
+  <script src="js/supabase-client.js?v=23"></script>
+  <script>
+    // Si ya hay una sesion activa (ej. al entrar al sitio y ser redirigido
+    // aqui desde la raiz), no pedir login de nuevo: llevar directo a donde
+    // corresponda segun el estado de esa sesion.
+    (async () => {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) return;
+
+      if (session.user.user_metadata?.must_change_password) {
+        window.location.href = "change-password.html";
+      } else {
+        window.location.href = "index.html";
+      }
+    })();
+
+    document.getElementById("loginForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const email = document.getElementById("email").value;
+      const password = document.getElementById("password").value;
+      const errorEl = document.getElementById("errorMsg");
+      errorEl.textContent = "";
+
+      const captchaToken = typeof hcaptcha !== "undefined" ? hcaptcha.getResponse() : "";
+      if (!captchaToken) {
+        errorEl.textContent = "Complete la verificación (no soy un robot) antes de continuar.";
+        return;
+      }
+
+      const { data, error } = await supabaseClient.auth.signInWithPassword({
+        email, password, options: { captchaToken },
+      });
+
+      if (typeof hcaptcha !== "undefined") hcaptcha.reset();
+
+      if (error) {
+        errorEl.textContent = error.message || "Correo o contraseña incorrectos";
+        return;
+      }
+
+      if (data.user.user_metadata?.must_change_password) {
+        window.location.href = "change-password.html";
+        return;
+      }
+
+      window.location.href = "index.html";
+    });
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("reset") === "success") {
+      const el = document.getElementById("errorMsg");
+      el.style.color = "#2C6B34";
+      el.textContent = "Contraseña actualizada. Ya puede iniciar sesión.";
+    }
+    if (params.get("timeout") === "1") {
+      document.getElementById("errorMsg").textContent = "Su sesión se cerro por inactividad. Vuelva a iniciar sesión.";
+    }
+  </script>
+</body>
+</html>

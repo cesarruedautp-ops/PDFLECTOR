@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://js.hcaptcha.com https://*.hcaptcha.com; worker-src 'self' blob: https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.hcaptcha.com; frame-src https://*.hcaptcha.com https://newassets.hcaptcha.com; connect-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://*.hcaptcha.com https://bnilhzijsxulgczvnyxn.supabase.co wss://bnilhzijsxulgczvnyxn.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';">
+<title>SGD - Gestión Documental</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css?v=23">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://js.hcaptcha.com/1/api.js" async defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-brand"><div class="seal-mark">SG</div><span>SGD</span></div>
+    <div class="search-wrap">
+      <span class="search-icon">&#8981;</span>
+      <input type="text" id="searchInput" placeholder="Buscar por N de oficio..." oninput="handleSearch(this.value)">
+    </div>
+    <nav class="topbar-nav" id="topNav">
+      <a href="index.html" class="active">Documentos</a>
+      <a href="upload.html" class="hidden" id="navUpload">Subir</a>
+      <a href="logs.html" class="hidden" id="navLogs">Auditoría</a>
+      <a href="users-admin.html" class="hidden" id="navUsers">Usuarios</a>
+    </nav>
+    <button class="btn" id="logoutBtn">Cerrar sesión</button>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-label">Filtros</div>
+      <div class="sidebar-filters">
+        <select id="typeFilter" onchange="handleTypeChange(this.value)">
+          <option value="">Todos los tipos</option>
+          <option value="OFICIO">Oficios</option>
+          <option value="MEMORANDUM">Memorandums</option>
+          <option value="ASIGNACION_VIATICOS">Viáticos - Asignación</option>
+          <option value="LIQUIDACION_VIATICOS">Viáticos - Liquidación</option>
+        </select>
+        <input type="text" id="keywordInput" placeholder="Palabra clave dentro del PDF..." oninput="handleKeywordInput(this.value)">
+        <select id="monthFilter" onchange="handleMonthChange(this.value)">
+          <option value="">Todos los meses</option>
+          <option value="1">Enero</option><option value="2">Febrero</option><option value="3">Marzo</option>
+          <option value="4">Abril</option><option value="5">Mayo</option><option value="6">Junio</option>
+          <option value="7">Julio</option><option value="8">Agosto</option><option value="9">Septiembre</option>
+          <option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option>
+        </select>
+        <button type="button" id="clearFiltersBtn" class="sidebar-link hidden" onclick="clearFilters()">Limpiar filtros</button>
+      </div>
+      <div class="sidebar-label">Archivo - por año</div>
+      <div id="sidebarTree"></div>
+      <div id="indexTools" class="sidebar-tools hidden">
+        <button type="button" class="btn" id="indexBtn" onclick="runIndexing()">Indexar documentos anteriores</button>
+        <div class="status" id="indexStatus"></div>
+      </div>
+    </aside>
+
+    <div class="main-content">
+      <div class="viewer-col">
+        <div class="viewer-toolbar" id="viewerToolbar"></div>
+        <div id="pdfCanvasWrap"></div>
+      </div>
+      <aside class="metadata-panel" id="metadataPanel"></aside>
+    </div>
+  </div>
+
+  <div id="modalRoot"></div>
+  <div class="toast" id="toast"></div>
+
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  </script>
+  <script src="js/supabase-client.js?v=23"></script>
+  <script src="js/tab-lock.js?v=23"></script>
+  <script src="js/utils.js?v=1"></script>
+  <script src="js/auth-guard.js?v=23"></script>
+  <script src="js/idle-timeout.js?v=23"></script>
+  <script src="js/pdf-text.js?v=23"></script>
+  <script src="js/documents.js?v=23"></script>
+  <script src="js/sidebar-tree.js?v=23"></script>
+  <script src="js/pdf-viewer.js?v=23"></script>
+  <script>
+    async function runIndexing() {
+      const btn = document.getElementById("indexBtn");
+      const status = document.getElementById("indexStatus");
+      btn.disabled = true;
+      try {
+        const result = await indexExistingDocuments((msg) => { status.textContent = msg; });
+        status.textContent = result.total === 0
+          ? "No hay documentos pendientes de indexar."
+          : `Listo: ${result.processed} de ${result.total} documentos indexados.`;
+      } catch (err) {
+        status.textContent = "Error: " + err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+  </script>
+  <script>
+    (async () => {
+      const session = await requireAuth();
+      if (!session) return;
+
+      initTabLock(() => {
+        window.currentUserRole = session.role;
+        if (session.role === "ADMIN") document.getElementById("indexTools").classList.remove("hidden");
+        applyRoleVisibilityToNav(session.role);
+        setupLogout();
+        startIdleWatcher();
+
+        showEmptyViewer();
+        renderSidebarTree();
+      });
+    })();
+  </script>
+</body>
+</html>

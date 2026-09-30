@@ -1,0 +1,9 @@
+[build]
+  publish = "frontend"
+  functions = "netlify/functions"
+
+[functions."process-index-queue"]
+  schedule = "*/15 * * * *"
+
+[functions]
+  node_bundler = "esbuild"

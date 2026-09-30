@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; worker-src 'self' blob: https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://bnilhzijsxulgczvnyxn.supabase.co wss://bnilhzijsxulgczvnyxn.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';">
+<title>SGD - Auditoría</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css?v=23">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-brand"><div class="seal-mark">SG</div><span>SGD</span></div>
+    <nav class="topbar-nav" id="topNav">
+      <a href="index.html">Documentos</a>
+      <a href="upload.html" class="hidden" id="navUpload">Subir</a>
+      <a href="logs.html" class="hidden active" id="navLogs">Auditoría</a>
+      <a href="users-admin.html" class="hidden" id="navUsers">Usuarios</a>
+    </nav>
+    <button class="btn" id="logoutBtn">Cerrar sesión</button>
+  </header>
+
+  <main class="subview" style="max-width:920px;">
+    <h2>Auditoría del sistema</h2>
+    <p class="sub">Registro de subidas, borrados y cambios administrativos.</p>
+    <table class="logs-table">
+      <thead><tr><th>Fecha / hora</th><th>Usuario</th><th>Acción</th><th>Detalle</th></tr></thead>
+      <tbody id="logsBody"><tr><td colspan="4" style="text-align:center;color:var(--ink-soft);padding:2rem;">Cargando...</td></tr></tbody>
+    </table>
+  </main>
+
+  <script src="js/supabase-client.js?v=23"></script>
+  <script src="js/tab-lock.js?v=23"></script>
+  <script src="js/utils.js?v=1"></script>
+  <script src="js/auth-guard.js?v=23"></script>
+  <script src="js/idle-timeout.js?v=23"></script>
+  <script>
+    (async () => {
+      const session = await requireAuth(["ADMIN"]);
+      if (!session) return;
+
+      initTabLock(async () => {
+      applyRoleVisibilityToNav(session.role);
+      setupLogout();
+      startIdleWatcher();
+
+      const { data: logs, error } = await supabaseClient
+        .from("audit_logs")
+        .select("*, user:user_id(full_name, email)")
+        .order("timestamp", { ascending: false })
+        .limit(200);
+
+      const tbody = document.getElementById("logsBody");
+
+      if (error) {
+        tbody.innerHTML = `<tr><td colspan="4" class="error">${error.message}</td></tr>`;
+        return;
+      }
+      if (logs.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--ink-soft);padding:2rem;">Sin registros aun.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = logs.map(l => `
+        <tr>
+          <td class="mono">${new Date(l.timestamp).toLocaleString()}</td>
+          <td>${escapeHtml(l.user?.full_name ?? "-")}</td>
+          <td><span class="badge ${l.action === "DELETE" ? "badge-delete" : "badge-upload"}">${l.action}</span></td>
+          <td style="color:var(--ink-soft);">${escapeHtml(l.detail || "")}</td>
+        </tr>
+      `).join("");
+      });
+    })();
+  </script>
+</body>
+</html>

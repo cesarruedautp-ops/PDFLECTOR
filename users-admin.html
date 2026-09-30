@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; worker-src 'self' blob: https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://bnilhzijsxulgczvnyxn.supabase.co wss://bnilhzijsxulgczvnyxn.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';">
+<title>SGD - Gestión de usuarios</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css?v=23">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-brand"><div class="seal-mark">SG</div><span>SGD</span></div>
+    <nav class="topbar-nav" id="topNav">
+      <a href="index.html">Documentos</a>
+      <a href="upload.html" class="hidden" id="navUpload">Subir</a>
+      <a href="logs.html" class="hidden" id="navLogs">Auditoría</a>
+      <a href="users-admin.html" class="hidden active" id="navUsers">Usuarios</a>
+    </nav>
+    <button class="btn" id="logoutBtn">Cerrar sesión</button>
+  </header>
+
+  <main class="subview" style="max-width:920px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem;">
+      <h2>Usuarios del sistema</h2>
+      <button class="btn btn-primary" style="width:auto;padding:9px 16px;" id="openCreateBtn">+ Nuevo usuario</button>
+    </div>
+
+    <div id="alertBox" class="hidden" style="margin-bottom:1rem;padding:10px 14px;border-radius:2px;font-size:13.5px;"></div>
+
+    <table class="logs-table" id="usersTable">
+      <thead><tr><th>Usuario</th><th>Correo</th><th>Rol</th><th>Estado</th><th>Acciones</th></tr></thead>
+      <tbody id="usersTableBody"><tr><td colspan="5" style="text-align:center;color:var(--ink-soft);padding:2rem;">Cargando usuarios...</td></tr></tbody>
+    </table>
+  </main>
+
+  <div id="modalRoot"></div>
+
+  <script src="js/supabase-client.js?v=23"></script>
+  <script src="js/tab-lock.js?v=23"></script>
+  <script src="js/utils.js?v=1"></script>
+  <script src="js/auth-guard.js?v=23"></script>
+  <script src="js/idle-timeout.js?v=23"></script>
+  <script src="js/users-admin.js?v=23"></script>
+  <script>
+    (async () => {
+      const session = await requireAuth(["ADMIN"]);
+      if (!session) return;
+
+      initTabLock(() => {
+      applyRoleVisibilityToNav(session.role);
+      setupLogout();
+      startIdleWatcher();
+      loadUsers();
+      document.getElementById("openCreateBtn").addEventListener("click", openCreateUserModal);
+      });
+    })();
+  </script>
+</body>
+</html>

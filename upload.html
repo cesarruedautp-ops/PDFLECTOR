@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; worker-src 'self' blob: https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://bnilhzijsxulgczvnyxn.supabase.co wss://bnilhzijsxulgczvnyxn.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';">
+<title>SGD - Subir documento</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css?v=23">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-brand"><div class="seal-mark">SG</div><span>SGD</span></div>
+    <nav class="topbar-nav" id="topNav">
+      <a href="index.html">Documentos</a>
+      <a href="upload.html" class="hidden active" id="navUpload">Subir</a>
+      <a href="logs.html" class="hidden" id="navLogs">Auditoría</a>
+      <a href="users-admin.html" class="hidden" id="navUsers">Usuarios</a>
+    </nav>
+    <button class="btn" id="logoutBtn">Cerrar sesión</button>
+  </header>
+
+  <main class="subview">
+    <h2>Subir documento</h2>
+    <p class="sub">El archivo se sube directo a Supabase Storage y aparecera en el arbol de la izquierda.</p>
+
+    <form id="uploadForm">
+      <div class="form-file" id="dropZone">
+        <input type="file" id="fileInput" accept="application/pdf" style="display:none;">
+        <div id="dropZoneContent"></div>
+      </div>
+      <div class="field">
+        <label>Tipo de documento</label>
+        <select id="tipoDocumento" onchange="handleTipoDocumentoChange(this.value)">
+          <option value="OFICIO">Oficio</option>
+          <option value="MEMORANDUM">Memorandum</option>
+          <option value="ASIGNACION_VIATICOS">Asignación de viáticos</option>
+          <option value="LIQUIDACION_VIATICOS">Liquidación de viáticos</option>
+        </select>
+      </div>
+      <div class="form-grid">
+        <div class="field"><label>Año</label><input type="number" id="anio" required></div>
+        <div class="field" id="fieldTomo"><label>Tomo</label><input type="text" id="tomo" placeholder="Tomo I"></div>
+        <div class="field"><label>Mes</label><input type="number" id="mes" min="1" max="12" required></div>
+        <div class="field" id="fieldNumero"><label id="labelNumero">Número de oficio</label><input type="text" id="numeroOficio" placeholder="OF-2026-0147"></div>
+      </div>
+      <div class="form-grid hidden" id="groupMemo">
+        <div class="field"><label>Remitente (De)</label><input type="text" id="remitente" placeholder="Nombre y cargo"></div>
+        <div class="field"><label>Destinatario (Para)</label><input type="text" id="destinatario" placeholder="Nombre y cargo"></div>
+      </div>
+      <div class="form-grid hidden" id="groupViaticos">
+        <div class="field"><label>Empleado</label><input type="text" id="empleado" placeholder="Nombre del empleado"></div>
+        <div class="field"><label>Fecha inicio del viaje</label><input type="date" id="fechaViajeInicio"></div>
+        <div class="field"><label>Fecha fin del viaje</label><input type="date" id="fechaViajeFin"></div>
+      </div>
+      <div class="field"><label id="labelDescripcion">Descripción</label><textarea id="descripcion" rows="3" required></textarea></div>
+      <div class="error" id="uploadError"></div>
+      <button type="submit" class="btn btn-primary" style="width:auto;padding:10px 20px;" id="submitBtn">Subir documento</button>
+    </form>
+    <p id="indexingStatus" style="margin-top:1rem;font-size:13px;color:var(--ink-soft);"></p>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="js/supabase-client.js?v=23"></script>
+  <script src="js/tab-lock.js?v=23"></script>
+  <script src="js/auth-guard.js?v=23"></script>
+  <script src="js/idle-timeout.js?v=23"></script>
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  </script>
+  <script src="js/pdf-text.js?v=23"></script>
+  <script src="js/documents.js?v=23"></script>
+  <script>
+    let selectedFile = null;
+
+    // Avisa con la confirmacion nativa del navegador si se intenta cerrar o
+    // salir de la pagina mientras la lectura del texto en segundo plano
+    // todavia no termina, para no perderla por accidente.
+    let pendingIndexingCount = 0;
+    window.addEventListener("beforeunload", (e) => {
+      if (pendingIndexingCount > 0) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    });
+
+    function renderDropZoneContent() {
+      const el = document.getElementById("dropZoneContent");
+      const zone = document.getElementById("dropZone");
+      if (selectedFile) {
+        zone.classList.add("has-file");
+        const sizeKb = Math.round(selectedFile.size / 1024);
+        el.innerHTML = `<span class="file-chip">${selectedFile.name} (${sizeKb} KB) <button type="button" onclick="event.stopPropagation();clearSelectedFile();">Quitar</button></span>`;
+      } else {
+        zone.classList.remove("has-file");
+        el.innerHTML = `<strong>Arrastra el PDF aqui</strong>o haz clic para seleccionar un archivo - solo formato PDF`;
+      }
+    }
+
+    function clearSelectedFile() {
+      selectedFile = null;
+      document.getElementById("fileInput").value = "";
+      renderDropZoneContent();
+    }
+
+    function setSelectedFile(file) {
+      document.getElementById("uploadError").textContent = "";
+      selectedFile = file;
+      renderDropZoneContent();
+    }
+
+    function handleTipoDocumentoChange(tipo) {
+      const isOficio = tipo === "OFICIO";
+      const isMemo = tipo === "MEMORANDUM";
+      const isViaticos = tipo === "ASIGNACION_VIATICOS" || tipo === "LIQUIDACION_VIATICOS";
+
+      document.getElementById("fieldTomo").classList.toggle("hidden", !isOficio);
+      document.getElementById("fieldNumero").classList.toggle("hidden", !(isOficio || isMemo));
+      document.getElementById("groupMemo").classList.toggle("hidden", !isMemo);
+      document.getElementById("groupViaticos").classList.toggle("hidden", !isViaticos);
+
+      document.getElementById("labelNumero").textContent = isMemo ? "Número / código" : "Número de oficio";
+      document.getElementById("labelDescripcion").textContent = isViaticos ? "Propósito del viaje" : (isMemo ? "Asunto" : "Descripción");
+    }
+
+
+    // Detección heurística de PDFs con contenido activo (JavaScript embebido,
+    // apertura automática de programas, o acciones al abrir el archivo).
+    // No es un antivirus: solo busca las palabras clave que usan esas
+    // funciones dentro de la estructura del PDF. Procesa el archivo por
+    // partes y cede el control al navegador entre cada una, para no
+    // congelar la pestaña con archivos grandes (PDF escaneados de varias
+    // paginas, como liquidaciones de viaticos).
+    const SUSPICIOUS_PDF_TOKENS = ["/JavaScript", "/JS", "/OpenAction", "/AA", "/Launch"];
+    const MAX_TOKEN_LENGTH = Math.max(...SUSPICIOUS_PDF_TOKENS.map((t) => t.length));
+
+    async function containsSuspiciousPdfActions(file) {
+      const buffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      const chunkSize = 262144; // 256 KB por pedazo
+      let carryOver = "";
+
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        const slice = bytes.subarray(i, i + chunkSize);
+        const chunkText = carryOver + String.fromCharCode.apply(null, slice);
+
+        if (SUSPICIOUS_PDF_TOKENS.some((token) => chunkText.includes(token))) {
+          return true;
+        }
+
+        // Se conserva el final del pedazo por si un token quedo partido
+        // justo en el corte entre un pedazo y el siguiente.
+        carryOver = chunkText.slice(-MAX_TOKEN_LENGTH);
+
+        // Cede el control al navegador para que la pestaña siga respondiendo
+        // (repintar la pantalla, mover el mouse, etc.) mientras se procesa.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+
+      return false;
+    }
+
+    // Si la lectura del texto (OCR) se traba por cualquier motivo (documento
+    // escaneado pesado, o un problema de red al cargar el motor de OCR), no
+    // debe dejar la subida colgada para siempre -- se le pone un limite de
+    // tiempo y, si se agota, se sube el documento igual sin texto indexado.
+    function withTimeout(promise, ms) {
+      return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Tiempo de espera agotado")), ms)),
+      ]);
+    }
+
+    (async () => {
+      const session = await requireAuth(["ADMIN", "UPLOADER"]);
+      if (!session) return;
+
+      initTabLock(() => {
+      applyRoleVisibilityToNav(session.role);
+      setupLogout();
+      startIdleWatcher();
+      renderDropZoneContent();
+      handleTipoDocumentoChange("OFICIO");
+
+      const dropZone = document.getElementById("dropZone");
+      const fileInput = document.getElementById("fileInput");
+
+      dropZone.addEventListener("click", (e) => { if (!e.target.closest(".file-chip")) fileInput.click(); });
+      fileInput.addEventListener("change", (e) => { if (e.target.files[0]) setSelectedFile(e.target.files[0]); });
+      dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.classList.add("drag-over"); });
+      dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
+      dropZone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dropZone.classList.remove("drag-over");
+        const file = e.dataTransfer.files[0];
+        if (!file) return;
+        if (file.type !== "application/pdf") {
+          document.getElementById("uploadError").textContent = "Solo se admiten archivos PDF.";
+          return;
+        }
+        setSelectedFile(file);
+      });
+
+      document.getElementById("uploadForm").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const errorEl = document.getElementById("uploadError");
+        errorEl.textContent = "";
+
+        if (!selectedFile) {
+          errorEl.textContent = "Debe adjuntar un archivo PDF antes de subir.";
+          return;
+        }
+
+        const tipoDocumento = document.getElementById("tipoDocumento").value;
+        const tomo = document.getElementById("tomo").value.trim();
+        const numeroOficio = document.getElementById("numeroOficio").value.trim();
+        const empleado = document.getElementById("empleado").value.trim();
+        const fechaViajeInicio = document.getElementById("fechaViajeInicio").value;
+        const fechaViajeFin = document.getElementById("fechaViajeFin").value;
+        const remitente = document.getElementById("remitente").value.trim();
+        const destinatario = document.getElementById("destinatario").value.trim();
+
+        if (tipoDocumento === "OFICIO" && (!tomo || !numeroOficio)) {
+          errorEl.textContent = "Complete el Tomo y el Número de oficio.";
+          return;
+        }
+        if (tipoDocumento === "MEMORANDUM" && !numeroOficio) {
+          errorEl.textContent = "Complete el Número / código del memorandum.";
+          return;
+        }
+        if ((tipoDocumento === "ASIGNACION_VIATICOS" || tipoDocumento === "LIQUIDACION_VIATICOS") && !empleado) {
+          errorEl.textContent = "Complete el nombre del empleado.";
+          return;
+        }
+
+        const submitBtn = document.getElementById("submitBtn");
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Verificando el archivo...";
+
+        try {
+          if (await containsSuspiciousPdfActions(selectedFile)) {
+            errorEl.textContent = "Este PDF contiene JavaScript embebido o acciones automáticas y no se puede subir por seguridad. Vuelva a guardarlo como PDF simple (por ejemplo, imprimiendolo a PDF) e intente de nuevo.";
+            submitBtn.disabled = false;
+            submitBtn.textContent = "Subir documento";
+            return;
+          }
+        } catch (err) {
+          errorEl.textContent = "No se pudo verificar el archivo: " + err.message;
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Subir documento";
+          return;
+        }
+
+        submitBtn.textContent = "Subiendo...";
+
+        const fileForIndexing = selectedFile;
+
+        try {
+          const nuevoDoc = await uploadDocument({
+            file: selectedFile,
+            tipoDocumento,
+            numeroOficio: numeroOficio || null,
+            descripcion: document.getElementById("descripcion").value,
+            anio: document.getElementById("anio").value,
+            tomo: tomo || null,
+            mes: document.getElementById("mes").value,
+            empleado: empleado || null,
+            fechaViajeInicio: fechaViajeInicio || null,
+            fechaViajeFin: fechaViajeFin || null,
+            remitente: remitente || null,
+            destinatario: destinatario || null,
+            userId: session.user.id,
+            contenidoTexto: null,
+          });
+
+          const t = document.getElementById("toast");
+          t.textContent = "Documento subido correctamente.";
+          t.classList.add("show");
+          document.getElementById("uploadForm").reset();
+          clearSelectedFile();
+          setTimeout(() => t.classList.remove("show"), 3200);
+
+          // La lectura del texto (para el buscador por palabra clave) pasa
+          // en segundo plano, despues de terminar la subida -- no bloquea
+          // el formulario. Si el usuario cierra o cambia de pagina antes de
+          // que termine, el ADMIN puede completarla despues con el boton
+          // "Indexar documentos anteriores".
+          (async () => {
+            pendingIndexingCount++;
+            document.getElementById("indexingStatus").textContent =
+              "Leyendo el texto de \"" + (nuevoDoc.numero_oficio || nuevoDoc.empleado || "el documento") + "\" para el buscador (puede tardar un momento; no cierre la pagina)...";
+            try {
+              const texto = await withTimeout(extractPdfText(await fileForIndexing.arrayBuffer(), () => {}), 120000);
+              await supabaseClient.from("documents").update({ contenido_texto: texto }).eq("id", nuevoDoc.id);
+            } catch (err) {
+              console.warn("No se pudo indexar el texto en segundo plano:", err);
+            } finally {
+              pendingIndexingCount--;
+              if (pendingIndexingCount === 0) document.getElementById("indexingStatus").textContent = "";
+            }
+          })();
+        } catch (err) {
+          errorEl.textContent = err.message;
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Subir documento";
+        }
+      });
+      });
+    })();
+  </script>
+</body>
+</html>
